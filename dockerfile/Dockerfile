@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS base
+FROM ubuntu:25.04 AS base
 
 # Silent install
 ARG DEBIAN_FRONTEND=noninteractive
@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
         acl \
         attr \
         samba \
+		samba-ad-dc \
+		samba-ad-provision \
         smbclient \
         krb5-config \
         krb5-user \
@@ -23,6 +25,8 @@ RUN apt-get update && apt-get install -y \
         dnsutils \
         iproute2 \
         nano \
+		bind9=1:9.20.* \
+		bind9utils=1:9.20.* \
         && rm -rf /var/lib/apt/lists/*
 
 # Remove the default smb.conf

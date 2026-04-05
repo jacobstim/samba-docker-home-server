@@ -16,7 +16,7 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 # Provision a new AD domain
-samba-tool domain provision --use-rfc2307 --server-role=dc --dns-backend=SAMBA_INTERNAL --realm="${DOMAIN_FQDN_UCASE}" --domain="${DOMAIN_NETBIOS}" --host-ip=${DC_IP}
+samba-tool domain provision --use-rfc2307 --server-role=dc --dns-backend=BIND9_DLZ --realm="${DOMAIN_FQDN_UCASE}" --domain="${DOMAIN_NETBIOS}" --host-ip=${DC_IP}
 
 # Disable password expiry, etc.
 samba-tool domain passwordsettings set --history-length=0
@@ -29,5 +29,20 @@ sed -i "/dns forwarder/c\\\tdns forwarder = ${DNSFORWARDER}" "$DEFAULT_CONFIG_FI
 # smb.conf: disable NetBIOS
 sed -i "/\[global\]/a \\\tdisable netbios = yes" "$DEFAULT_CONFIG_FILE"
 
+# smb.conf: allow DNS updates
+sed -i "/\[global\]/a \\\tallow dns updates = nonsecure and secure" "$DEFAULT_CONFIG_FILE"
+
+# smb.conf: remove rfc2307 idmap (not needed, causes issues)
+sed -i '/idmap_ldb:use rfc2307/d' "$DEFAULT_CONFIG_FILE"
+
 # smb.conf: move the config created by the provisioning tool to our target directory
 mv "$DEFAULT_CONFIG_FILE" "$CONFIG_FILE"
+
+# Ask to change admin password (timeout after 5 seconds)
+echo ""
+echo "Do you want to change the Administrator password? (y/N, timeout 5s)"
+if read -t 5 -r response && [[ "$response" =~ ^[Yy]$ ]]; then
+    samba-tool user setpassword Administrator
+else
+    echo "Keeping generated password."
+fi
