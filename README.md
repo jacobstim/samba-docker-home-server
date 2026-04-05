@@ -37,11 +37,11 @@ Please see my [series of blog posts](https://helgeklein.com/blog/samba-active-di
 
 When running the Samba DC container on TrueNAS SCALE with macvlan networking, the host requires a macvlan shim interface to enable communication between the TrueNAS host and the container (which are normally isolated from each other).
 
-**Important:** The shim interface must be named with a prefix that TrueNAS recognizes as an internal interface, otherwise TrueNAS will include the shim's IP address in DNS registration during Active Directory domain join, causing `NOTZONE` errors.
+**Important:** The shim interface must be named with a prefix that TrueNAS recognizes as an internal interface, otherwise TrueNAS will include the shim's IP address in DNS registration during Active Directory domain join, possibly causing errors.
 
 Name the shim interface with the prefix `mac` (e.g., `mac-samba`):
 ```bash
-ip link add mac-samba link enp133s0 type macvlan mode bridge
+ip link add mac-samba link bond0 type macvlan mode bridge
 ip addr add 172.16.0.6/32 dev mac-samba
 ip link set mac-samba up
 ip route add 172.16.0.5/32 dev mac-samba
@@ -55,23 +55,41 @@ TrueNAS filters interfaces starting with `mac` from its `interface.ip_in_use` li
 
 To make this persistent across reboots, add the above command as a single line to **System → Advanced → Init/Shutdown Scripts** (type: Post Init):
 ```bash
-ip link add mac-samba link enp133s0 type macvlan mode bridge && ip addr add 172.16.0.6/32 dev mac-samba && ip link set mac-samba up && ip route add 172.16.0.5/32 dev mac-samba
+ip link add mac-samba link bond0 type macvlan mode bridge && ip addr add 172.16.0.6/32 dev mac-samba && ip link set mac-samba up && ip route add 172.16.0.5/32 dev mac-samba
 ```
 
-Replace `enp133s0` with your actual network interface name.
+Replace `bond0` with your actual network interface name.
+
+### Reverse DNS Zones
+
+The container's `init-dc.sh` automatically creates two catch-all reverse DNS zones after startup:
+
+- `in-addr.arpa` — for IPv4 PTR records
+- `ip6.arpa` — for IPv6 PTR records
+
+These catch-all zones are required for TrueNAS to successfully register its PTR records during the domain join. 
 
 ### Domain Join
 
-The container's `init-dc.sh` automatically creates a `/8` reverse DNS zone (e.g. `172.in-addr.arpa`) after startup. This is required for TrueNAS to register its PTR record during the domain join.
+TrueNAS SCALE contains a bug in its middleware where IPv4 and IPv6 PTR
+records are sent in a single `nsupdate` transaction. BIND responds with `NOTZONE`,
+causing the domain join to fail.
 
-Before joining TrueNAS to the domain, temporarily disable IPv6 on the TrueNAS network interface. TrueNAS sends IPv4 and IPv6 PTR records in a single nsupdate transaction — if no IPv6 reverse zone exists, the entire transaction fails with a `NOTZONE` error:
+This has been reported to the TrueNAS team:
+[NAS-140548](https://ixsystems.atlassian.net/browse/NAS-140548)
+
+**Workaround: temporarily disable IPv6:**
+
+If you prefer not to patch the middleware (see bug report above), disable IPv6 on the TrueNAS
+network interface before joining the domain:
 ```bash
-sysctl -w net.ipv6.conf.enp133s0.accept_ra=0
+sysctl -w net.ipv6.conf.bond0.accept_ra=0
+ip -6 addr del <ipv6-address>/64 dev bond0
 ```
 
 After a successful domain join, re-enable IPv6:
 ```bash
-sysctl -w net.ipv6.conf.enp133s0.accept_ra=1
+sysctl -w net.ipv6.conf.bond0.accept_ra=1
 ```
 
-Replace `enp133s0` with your actual network interface name.
+Replace `bond0` with your actual network interface name.
