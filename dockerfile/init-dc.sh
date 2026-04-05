@@ -84,12 +84,26 @@ NAMEDEOF
    # Start reverse DNS zone creation in background after Samba is ready
    (
        sleep 10
-       REVERSE_ZONE=$(echo ${DC_IP} | cut -d. -f1).in-addr.arpa
-       PTR_RECORD=$(echo ${DC_IP} | cut -d. -f4).$(echo ${DC_IP} | cut -d. -f3).$(echo ${DC_IP} | cut -d. -f2)
-       # Only create zone if it doesn't exist yet
-       if ! samba-tool dns zonelist ${DC_IP} -U Administrator -P 2>/dev/null | grep -q "${REVERSE_ZONE}"; then
-           samba-tool dns zonecreate ${DC_IP} ${REVERSE_ZONE} -U Administrator -P
-           samba-tool dns add ${DC_IP} ${REVERSE_ZONE} ${PTR_RECORD} PTR ${DC_NAME}.${DOMAIN_FQDN} -U Administrator -P
+       # Create IPv4 catch-all reverse zone if it doesn't exist
+       if ! samba-tool dns zonelist ${DC_IP} -U Administrator -P 2>/dev/null | grep -q "^  pszZoneName.*: in-addr.arpa$"; then
+           echo "Creating IPv4 reverse lookup zone"
+           samba-tool dns zonecreate ${DC_IP} in-addr.arpa -U Administrator -P
+
+           # Add PTR record for the DC itself
+           PTR_RECORD=$(echo ${DC_IP} | awk -F. '{print $4"."$3"."$2"."$1}')
+           samba-tool dns add ${DC_IP} in-addr.arpa ${PTR_RECORD} PTR ${DC_NAME}.${DOMAIN_FQDN} -U Administrator -P
+
+           # Restart BIND so DLZ picks up the new zone
+           pkill named
+           sleep 2
+           named -u bind
+       fi
+
+       # Create IPv6 catch-all reverse zone if it doesn't exist
+       if ! samba-tool dns zonelist ${DC_IP} -U Administrator -P 2>/dev/null | grep -q "^  pszZoneName.*: ip6.arpa$"; then
+           echo "Creating IPv6 reverse lookup zone"
+           samba-tool dns zonecreate ${DC_IP} ip6.arpa -U Administrator -P
+
            # Restart BIND so DLZ picks up the new zone
            pkill named
            sleep 2
